@@ -1,0 +1,340 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Imitate the Sound – Children’s Edition</title>
+    <script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background: #faf8f2;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        button {
+            padding: 12px 22px;
+            margin: 8px;
+            font-size: 16px;
+            border-radius: 10px;
+            border: none;
+            background: #ffd166;
+            cursor: pointer;
+        }
+
+            button:hover {
+                background: #fcbf49;
+            }
+
+        #progressBarContainer {
+            width: 300px;
+            height: 12px;
+            background: #ddd;
+            border-radius: 8px;
+            margin: 10px auto;
+            overflow: hidden;
+            display: none;
+        }
+
+        #progressBar {
+            height: 100%;
+            width: 0%;
+            background: #ef476f;
+        }
+
+        #waveformCanvas {
+            width: 320px;
+            height: 100px;
+            background: #fff3e0;
+            border: 2px solid #ffd166;
+            margin: 16px auto;
+            border-radius: 8px;
+            display: none;
+        }
+
+        #afterRecordingWrapper {
+            display: flex;
+            justify-content: center;
+            margin-top: 16px;
+            width: 100%;
+        }
+
+        #afterRecording {
+            display: none;
+        }
+
+        #controlsContainer {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        #pitchContainer {
+            position: relative;
+            width: 60px;
+            height: 200px;
+            background: linear-gradient(to top, #8d6e63, #aed581);
+            border-radius: 12px;
+            display: flex;
+            justify-content: center;
+        }
+
+        #pitchKnob {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 40px;
+            height: 40px;
+            background: #ef476f;
+            border-radius: 50%;
+            border: 2px solid white;
+            cursor: pointer;
+        }
+
+        #bird {
+            position: absolute;
+            top: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 32px;
+        }
+
+        #bear {
+            position: absolute;
+            bottom: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 32px;
+        }
+
+        #soundImage {
+            width: 120px;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>🎵 Imitate the Sound</h2>
+    <img id="soundImage">
+    <p id="soundName"></p>
+
+    <div id="topButtons">
+        <button id="btnPlayOriginal">▶ Play Sound</button>
+        <button id="btnRecord">🎙 Record</button>
+        <button id="btnRandom">🎲 New Sound</button>
+    </div>
+
+    <div id="progressBarContainer">
+        <div id="progressBar"></div>
+    </div>
+
+    <canvas id="waveformCanvas"></canvas>
+
+    <div id="afterRecordingWrapper">
+        <div id="afterRecording">
+            <div id="controlsContainer">
+                <div id="pitchContainer">
+                    <img id="bird" src="images/bird.png">
+                    <img id="bear" src="images/bear.png">
+                    <div id="pitchKnob"></div>
+                </div>
+                <div>
+                    <button id="btnPlayYours">▶ Play Yours</button>
+                    <button id="btnPlayBoth">🎧 Play Both</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const sounds = [
+            { name: "Violin", file: "sounds/violin.mp3", img: "images/violin.png" },
+            { name: "Drum", file: "sounds/drum.mp3", img: "images/drum.png" },
+            { name: "Flute", file: "sounds/flute.mp3", img: "images/flute.png" },
+            { name: "Bird", file: "sounds/bird.mp3", img: "images/bird.png" },
+            { name: "Waves", file: "sounds/waves.mp3", img: "images/waves.png" },
+            { name: "Leaves", file: "sounds/leaves.mp3", img: "images/leaves.png" }
+        ];
+
+        let selectedSound;
+        let originalAudio = new Audio();
+        let micStream;
+        let mediaRecorder;
+        let recordedChunks = [];
+        let recordedBuffer;
+        let tonePlayer;
+        let pitchNode;
+
+        const progressContainer = document.getElementById("progressBarContainer");
+        const progressBar = document.getElementById("progressBar");
+        const canvas = document.getElementById("waveformCanvas");
+        const ctx = canvas.getContext('2d');
+        const pitchContainer = document.getElementById("pitchContainer");
+        const pitchKnob = document.getElementById("pitchKnob");
+
+        let recordingActive = false;
+        let playbackActive = false;
+        let countdownNumber;
+
+        // Separate analysers
+        let micAnalyser, micDataArray;
+        let playbackAnalyser, playbackDataArray;
+
+        // Random sound selection
+        function randomSound() {
+            selectedSound = sounds[Math.floor(Math.random() * sounds.length)];
+            document.getElementById("soundImage").src = selectedSound.img;
+            document.getElementById("soundName").textContent = selectedSound.name;
+            originalAudio.src = selectedSound.file;
+            document.getElementById("afterRecording").style.display = "none";
+            canvas.style.display = "none";
+            recordedBuffer = null;
+        }
+        randomSound();
+
+        document.getElementById("btnPlayOriginal").onclick = () => { originalAudio.currentTime = 0; originalAudio.play(); };
+        document.getElementById("btnRandom").onclick = randomSound;
+
+        // get mic
+        navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(stream => {
+                micStream = stream;
+                const micAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const source = micAudioCtx.createMediaStreamSource(micStream);
+                micAnalyser = micAudioCtx.createAnalyser();
+                micAnalyser.fftSize = 2048;
+                micDataArray = new Uint8Array(micAnalyser.frequencyBinCount);
+                source.connect(micAnalyser);
+            })
+            .catch(() => alert("Microphone access required"));
+
+        // Draw waveform
+        function drawWaveform() {
+            requestAnimationFrame(drawWaveform);
+            ctx.fillStyle = '#fff3e0';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#ef476f';
+            ctx.beginPath();
+            let analyserToUse = null, dataArrayToUse = null;
+
+            if (recordingActive && micAnalyser) {
+                analyserToUse = micAnalyser;
+                dataArrayToUse = micDataArray;
+            } else if (playbackActive && playbackAnalyser) {
+                analyserToUse = playbackAnalyser;
+                dataArrayToUse = playbackDataArray;
+            } else return;
+
+            analyserToUse.getByteTimeDomainData(dataArrayToUse);
+            const sliceWidth = canvas.width / dataArrayToUse.length;
+            let x = 0;
+            for (let i = 0; i < dataArrayToUse.length; i++) {
+                const v = dataArrayToUse[i] / 128.0;
+                const y = v * canvas.height / 2;
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                x += sliceWidth;
+            }
+            ctx.lineTo(canvas.width, canvas.height / 2);
+            ctx.stroke();
+
+            if (countdownNumber) {
+                ctx.fillStyle = "#ffd166";
+                ctx.font = "48px Arial";
+                ctx.textAlign = "center";
+                ctx.fillText(countdownNumber, canvas.width / 2, canvas.height / 2 + 16);
+            }
+        }
+
+        // Recording
+        async function startRecording() {
+            if (!originalAudio.duration || isNaN(originalAudio.duration)) await new Promise(r => originalAudio.onloadedmetadata = r);
+            const durationMs = originalAudio.duration * 1000;
+
+            canvas.style.display = "block";
+            recordingActive = true;
+            progressContainer.style.display = "block"; progressBar.style.width = "0%";
+            recordedChunks = [];
+
+            drawWaveform();
+
+            mediaRecorder = new MediaRecorder(micStream);
+            mediaRecorder.ondataavailable = e => recordedChunks.push(e.data);
+
+            // countdown
+            for (let i = 3; i > 0; i--) {
+                countdownNumber = i;
+                await new Promise(r => setTimeout(r, 800));
+            }
+            countdownNumber = "🎤";
+
+            mediaRecorder.onstop = async () => {
+                recordingActive = false;
+                countdownNumber = null;
+                const blob = new Blob(recordedChunks, { type: "audio/webm" });
+                recordedBuffer = await Tone.Buffer.fromUrl(URL.createObjectURL(blob));
+                progressContainer.style.display = "none";
+                document.getElementById("afterRecording").style.display = "flex";
+
+                pitchNode = new Tone.PitchShift(0).toDestination();
+                tonePlayer = new Tone.Player(recordedBuffer).connect(pitchNode);
+
+                // playback analyser for waveform
+                playbackAnalyser = Tone.context.createAnalyser();
+                playbackAnalyser.fftSize = 2048;
+                playbackDataArray = new Uint8Array(playbackAnalyser.frequencyBinCount);
+                tonePlayer.connect(playbackAnalyser);
+
+                pitchKnob.style.top = (pitchContainer.offsetHeight / 2 - pitchKnob.offsetHeight / 2) + "px";
+            };
+
+            mediaRecorder.start();
+            const startTime = Date.now();
+            const interval = setInterval(() => {
+                let pct = ((Date.now() - startTime) / durationMs) * 100;
+                progressBar.style.width = pct + "%";
+            }, 50);
+            setTimeout(() => {
+                clearInterval(interval);
+                mediaRecorder.stop();
+            }, durationMs);
+        }
+
+        document.getElementById("btnRecord").onclick = startRecording;
+
+        // Play waveform for recorded audio
+        function playRecording(player) {
+            if (!player) return;
+            playbackActive = true;
+            recordingActive = false;
+            canvas.style.display = "block";
+            drawWaveform();
+            player.stop(); player.start();
+            player.onstop = () => playbackActive = false;
+        }
+
+        document.getElementById("btnPlayYours").onclick = () => playRecording(tonePlayer);
+        document.getElementById("btnPlayBoth").onclick = () => {
+            originalAudio.currentTime = 0; originalAudio.play();
+            playRecording(tonePlayer);
+        };
+
+        // Pitch knob dragging
+        let dragging = false;
+        pitchKnob.addEventListener("mousedown", () => dragging = true);
+        document.addEventListener("mouseup", () => dragging = false);
+        document.addEventListener("mousemove", (e) => {
+            if (!dragging) return;
+            const rect = pitchContainer.getBoundingClientRect();
+            let y = e.clientY - rect.top;
+            if (y < 0) y = 0; if (y > rect.height) y = rect.height;
+            pitchKnob.style.top = (y - pitchKnob.offsetHeight / 2) + "px";
+            const semitones = Math.round((1 - y / rect.height) * 24 - 12);
+            if (pitchNode) pitchNode.pitch = semitones;
+        });
+    </script>
+</body>
+</html>

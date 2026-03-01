@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Create Your Own Song</title>
+
+    <style>
+        body {
+            font-family: Arial;
+            text-align: center;
+            background: #fff9ec;
+            padding: 40px;
+        }
+
+        /* ---------- PALETTES ---------- */
+
+        #soundPalette, #userPalette {
+            display: flex;
+            justify-content: center;
+            gap: 14px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .soundTile {
+            width: 70px;
+            height: 70px;
+            border-radius: 16px;
+            background: #ffd166;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: grab;
+            user-select: none;
+            position: relative;
+            transition: transform 0.2s ease, background 0.2s ease;
+        }
+
+            .soundTile img {
+                width: 50px;
+                height: 50px;
+                pointer-events: none;
+            }
+
+            .soundTile button {
+                position: absolute;
+                bottom: -8px;
+                right: -8px;
+                font-size: 12px;
+                border: none;
+                border-radius: 8px;
+                padding: 2px 6px;
+                cursor: pointer;
+            }
+
+        /* ---------- GRID ---------- */
+
+        #grid {
+            display: grid;
+            gap: 14px;
+            justify-content: center;
+            margin: 20px 0;
+        }
+
+        .gridCell {
+            width: 100px;
+            height: 100px;
+            border: 2px dashed #ffd166;
+            border-radius: 18px;
+            position: relative;
+            background: #fff3d6;
+        }
+
+        .tile {
+            width: 80px;
+            height: 80px;
+            border-radius: 16px;
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            background: #06d6a0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.1s ease, box-shadow 0.1s ease;
+        }
+
+            .tile img {
+                width: 60px;
+                height: 60px;
+                pointer-events: none;
+            }
+
+        /* ---------- BUTTONS ---------- */
+
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 12px;
+            border: none;
+            background: #ffd166;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        /* ---------- TEMPO ---------- */
+
+        #tempoContainer {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin-top: 20px;
+        }
+
+            #tempoContainer img {
+                width: 40px;
+            }
+
+        /* ---------- RECORD UI ---------- */
+
+        #recordUI {
+            width: 340px;
+            margin: 20px auto;
+            display: none;
+        }
+
+        #countdown {
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        #recordProgressWrapper {
+            width: 100%;
+            height: 30px;
+            background: #ffe680;
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        #recordProgress {
+            height: 100%;
+            width: 0%;
+            background: #ffb703;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>🎶 Create Your Own Song</h2>
+
+    <div id="soundPalette"></div>
+
+    <h3>Your Sounds</h3>
+    <div id="userPalette"></div>
+
+    <div id="recordUI">
+        <div id="countdown"></div>
+        <div id="recordProgressWrapper">
+            <div id="recordProgress"></div>
+        </div>
+    </div>
+
+    <div id="grid"></div>
+
+    <button id="addBeatsBtn">➕ Add 4 Beats</button>
+    <button id="playBtn">▶ Play</button>
+    <button id="resetBtn">🔄 Reset</button>
+    <button id="saveBtn">💾 Save Song</button>
+    <button id="loadBtn">📂 Load Song</button>
+    <input type="file" id="fileInput" accept=".json" style="display:none">
+
+    <div id="tempoContainer">
+        <img src="images/turtle.png">
+        <input type="range" id="tempoSlider" min="60" max="180" value="120">
+        <img src="images/rabbit.png">
+    </div>
+
+    <script>
+
+        /* ================= MICROPHONE PERMISSION ================= */
+
+        let micStream = null;
+
+        async function requestMic() {
+            try {
+                micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            } catch (e) {
+                alert("Microphone permission required.");
+            }
+        }
+        requestMic();
+
+        /* ================= DEFAULT SOUNDS ================= */
+
+        const soundFiles = [
+            { file: "sounds/drum.mp3", image: "images/drum.png" },
+            { file: "sounds/flute.mp3", image: "images/flute.png" },
+            { file: "sounds/violin.mp3", image: "images/violin.png" },
+            { file: "sounds/bird.mp3", image: "images/bird.png" },
+            { file: "sounds/leaves.mp3", image: "images/leaves.png" },
+            { file: "sounds/waves.mp3", image: "images/waves.png" }
+        ];
+
+        const players = soundFiles.map(s => {
+            const a = new Audio(s.file);
+            a.preload = "auto";
+            return a;
+        });
+
+        /* ================= GRID ================= */
+
+        const rows = 3;
+        let cols = 4;
+        const maxCols = 16;
+
+        const gridEl = document.getElementById("grid");
+        let grid = [];
+
+        function buildGrid() {
+
+            const oldGrid = grid;
+            const oldCols = oldGrid.length ? oldGrid[0].length : 0;
+
+            grid = Array.from({ length: rows }, (_, r) =>
+                Array.from({ length: cols }, (_, c) =>
+                    (c < oldCols && oldGrid[r]) ? oldGrid[r][c] : null
+                )
+            );
+
+            gridEl.innerHTML = "";
+            gridEl.style.gridTemplateColumns = `repeat(${cols},100px)`;
+            gridEl.style.gridTemplateRows = `repeat(${rows},100px)`;
+
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+
+                    const cell = document.createElement("div");
+                    cell.className = "gridCell";
+                    cell.dataset.r = r;
+                    cell.dataset.c = c;
+
+                    cell.addEventListener("dragover", e => e.preventDefault());
+                    cell.addEventListener("drop", e => {
+                        e.preventDefault();
+                        placeTile(r, c);
+                    });
+
+                    if (grid[r][c]) {
+                        const tile = createTileElement(grid[r][c], r, c);
+                        cell.appendChild(tile);
+                    }
+
+                    gridEl.appendChild(cell);
+                }
+            }
+        }
+
+        buildGrid();
+
+        /* ================= DRAG SYSTEM ================= */
+
+        let selectedDrag = null;
+        let draggedFrom = null;
+
+        function preview(audio) {
+            if (!audio) return;
+            audio.currentTime = 0;
+            audio.volume = 1;
+            audio.play();
+        }
+
+        function fadeOut(audio) {
+            if (!audio) return;
+            let v = audio.volume;
+            const int = setInterval(() => {
+                v -= 0.05;
+                if (v <= 0) {
+                    clearInterval(int);
+                    audio.pause();
+                    audio.currentTime = 0;
+                    audio.volume = 1;
+                } else audio.volume = v;
+            }, 30);
+        }
+
+        function createTileElement(cellData, r, c) {
+
+            const tile = document.createElement("div");
+            tile.className = "tile";
+            tile.draggable = true;
+
+            const img = document.createElement("img");
+            img.src = cellData.type === "default"
+                ? soundFiles[cellData.index].image
+                : "images/user" + (cellData.index + 1) + ".png";
+
+            tile.appendChild(img);
+
+            tile.addEventListener("dragstart", () => {
+                selectedDrag = grid[r][c];
+                draggedFrom = { r, c };
+            });
+
+            tile.addEventListener("dragend", () => {
+                if (draggedFrom) {
+                    grid[draggedFrom.r][draggedFrom.c] = null;
+                    document.querySelector(
+                        `.gridCell[data-r='${draggedFrom.r}'][data-c='${draggedFrom.c}']`
+                    ).innerHTML = "";
+                }
+                draggedFrom = null;
+            });
+
+            return tile;
+        }
+
+        function placeTile(r, c) {
+            if (!selectedDrag) return;
+            grid[r][c] = selectedDrag;
+
+            const cell = document.querySelector(
+                `.gridCell[data-r='${r}'][data-c='${c}']`
+            );
+            cell.innerHTML = "";
+            cell.appendChild(createTileElement(selectedDrag, r, c));
+            selectedDrag = null;
+        }
+
+        /* ================= PALETTE ================= */
+
+        const palette = document.getElementById("soundPalette");
+
+        soundFiles.forEach((s, i) => {
+            const tile = document.createElement("div");
+            tile.className = "soundTile";
+            tile.draggable = true;
+
+            const img = document.createElement("img");
+            img.src = s.image;
+            tile.appendChild(img);
+
+            tile.addEventListener("dragstart", () => {
+                selectedDrag = { type: "default", index: i };
+                preview(players[i]);
+            });
+
+            tile.addEventListener("dragend", () => {
+                fadeOut(players[i]);
+            });
+
+            palette.appendChild(tile);
+        });
+
+        /* ================= USER RECORDINGS ================= */
+
+        const userPalette = document.getElementById("userPalette");
+        const userPlayers = [null, null, null];
+
+        for (let i = 0; i < 3; i++) {
+
+            const tile = document.createElement("div");
+            tile.className = "soundTile";
+            tile.draggable = true;
+
+            const img = document.createElement("img");
+            img.src = "images/user" + (i + 1) + ".png";
+            tile.appendChild(img);
+
+            const recBtn = document.createElement("button");
+            recBtn.textContent = "🎤";
+            recBtn.onclick = () => recordSound(i);
+            tile.appendChild(recBtn);
+
+            tile.addEventListener("dragstart", () => {
+                if (!userPlayers[i]) return;
+                selectedDrag = { type: "user", index: i };
+                preview(userPlayers[i]);
+            });
+
+            tile.addEventListener("dragend", () => {
+                if (userPlayers[i]) fadeOut(userPlayers[i]);
+            });
+
+            userPalette.appendChild(tile);
+        }
+
+        async function recordSound(i) {
+
+            if (!micStream) return;
+
+            const recorder = new MediaRecorder(micStream);
+            const chunks = [];
+            recorder.ondataavailable = e => chunks.push(e.data);
+
+            const ui = document.getElementById("recordUI");
+            const progress = document.getElementById("recordProgress");
+            const countdown = document.getElementById("countdown");
+
+            ui.style.display = "block";
+            progress.style.width = "0%";
+
+            let count = 3;
+            countdown.textContent = "3";
+
+            const countInt = setInterval(() => {
+                count--;
+                if (count > 0) countdown.textContent = count;
+                else if (count === 0) countdown.textContent = "🎤";
+            }, 1000);
+
+            setTimeout(() => {
+                recorder.start();
+                const duration = 3000;
+                let elapsed = 0;
+
+                const progInt = setInterval(() => {
+                    elapsed += 50;
+                    progress.style.width = (elapsed / duration * 100) + "%";
+                    if (elapsed >= duration) {
+                        clearInterval(progInt);
+                        recorder.stop();
+                        clearInterval(countInt);
+                        ui.style.display = "none";
+                    }
+                }, 50);
+
+            }, 3000);
+
+            recorder.onstop = () => {
+                const blob = new Blob(chunks);
+                userPlayers[i] = new Audio(URL.createObjectURL(blob));
+
+                // turn tile green
+                const tiles = document.querySelectorAll("#userPalette .soundTile");
+                tiles[i].style.background = "#06d6a0";
+                tiles[i].style.transform = "scale(1.1)";
+                setTimeout(() => tiles[i].style.transform = "scale(1)", 300);
+            };
+        }
+
+        /* ================= PLAY ================= */
+
+        let tempo = 120;
+        document.getElementById("tempoSlider").oninput = e => {
+            tempo = parseInt(e.target.value);
+        };
+
+        function bounce(el, duration) {
+            el.style.transform = "scale(1.35)";
+            el.style.boxShadow = "0 0 18px rgba(0,0,0,0.25)";
+            setTimeout(() => {
+                el.style.transform = "scale(1)";
+                el.style.boxShadow = "none";
+            }, duration * 1000 * 0.8);
+        }
+
+        async function playSong() {
+            const beat = 60 / tempo;
+
+            for (let c = 0; c < cols; c++) {
+                for (let r = 0; r < rows; r++) {
+
+                    const cell = grid[r][c];
+                    if (!cell) continue;
+
+                    const audio = cell.type === "default"
+                        ? players[cell.index]
+                        : userPlayers[cell.index];
+
+                    if (!audio) continue;
+
+                    audio.currentTime = 0;
+                    audio.play();
+
+                    const cellEl = document.querySelector(
+                        `.gridCell[data-r='${r}'][data-c='${c}'] .tile`
+                    );
+                    if (cellEl) bounce(cellEl, beat);
+                }
+
+                await new Promise(res => setTimeout(res, beat * 1000));
+            }
+        }
+
+        document.getElementById("playBtn").onclick = playSong;
+
+        /* ================= ADD BEATS ================= */
+
+        document.getElementById("addBeatsBtn").onclick = () => {
+            if (cols + 4 <= maxCols) {
+                cols += 4;
+                buildGrid();
+            }
+        };
+
+        /* ================= SAVE / LOAD ================= */
+
+        document.getElementById("saveBtn").onclick = async () => {
+
+            // Convert user recordings to base64
+            const userAudioData = await Promise.all(userPlayers.map(async (audio) => {
+                if (!audio) return null;
+                const response = await fetch(audio.src);
+                const blob = await response.blob();
+                return await blobToBase64(blob);
+            }));
+
+            const data = {
+                grid,
+                tempo,
+                cols,
+                userAudioData
+            };
+
+            const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = "song.json";
+            a.click();
+        };
+
+        // Helper: Convert Blob to Base64
+        function blobToBase64(blob) {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.readAsDataURL(blob);
+            });
+        }
+
+        document.getElementById("loadBtn").onclick = () => {
+            document.getElementById("fileInput").click();
+        };
+
+        document.getElementById("fileInput").onchange = e => {
+            const file = e.target.files[0];
+            const reader = new FileReader();
+
+            reader.onload = async () => {
+                const data = JSON.parse(reader.result);
+
+                // Restore tempo
+                tempo = Math.min(Math.max(data.tempo || 120, 60), 180);
+                document.getElementById("tempoSlider").value = tempo;
+
+                // Restore columns
+                cols = data.cols || 4;
+
+                // Restore grid
+                buildGrid();
+                data.grid.forEach((row, r) => {
+                    row.forEach((cell, c) => {
+                        if (cell) {
+                            selectedDrag = cell;
+                            placeTile(r, c);
+                        }
+                    });
+                });
+
+                // Restore user recordings
+                const userAudioData = data.userAudioData || [];
+                for (let i = 0; i < 3; i++) {
+                    if (userAudioData[i]) {
+                        userPlayers[i] = new Audio(userAudioData[i]);
+                        // mark tile as recorded
+                        const tiles = document.querySelectorAll("#userPalette .soundTile");
+                        tiles[i].style.background = "#06d6a0";
+                    } else {
+                        userPlayers[i] = null;
+                        const tiles = document.querySelectorAll("#userPalette .soundTile");
+                        tiles[i].style.background = "#ffd166";
+                    }
+                }
+            };
+
+            reader.readAsText(file);
+        };
+
+        document.getElementById("resetBtn").onclick = () => {
+            grid = Array.from({ length: rows }, () => Array(cols).fill(null));
+            buildGrid();
+        };
+
+    </script>
+</body>
+</html>
