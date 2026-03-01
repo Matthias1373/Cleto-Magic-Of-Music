@@ -530,6 +530,20 @@
             });
         }
 
+        // Helper: Convert Base64 string back to a Blob
+        function base64ToBlob(base64) {
+            const parts = base64.split(';base64,');
+            const contentType = parts[0].split(':')[1];
+            const raw = window.atob(parts[1]);
+            const rawLength = raw.length;
+            const uInt8Array = new Uint8Array(rawLength);
+
+            for (let i = 0; i < rawLength; ++i) {
+                uInt8Array[i] = raw.charCodeAt(i);
+            }
+            return new Blob([uInt8Array], { type: contentType });
+        }
+
         document.getElementById("loadBtn").onclick = () => {
             document.getElementById("fileInput").click();
         };
@@ -541,14 +555,28 @@
             reader.onload = async () => {
                 const data = JSON.parse(reader.result);
 
-                // Restore tempo
+                // 1. Restore user recordings FIRST
+                const userAudioData = data.userAudioData || [];
+                for (let i = 0; i < 3; i++) {
+                    const tiles = document.querySelectorAll("#userPalette .soundTile");
+                    if (userAudioData[i]) {
+                        // Convert Base64 -> Blob -> Blob URL
+                        const blob = base64ToBlob(userAudioData[i]);
+                        userPlayers[i] = new Audio(URL.createObjectURL(blob));
+
+                        tiles[i].style.background = "#06d6a0";
+                    } else {
+                        userPlayers[i] = null;
+                        tiles[i].style.background = "#ffd166";
+                    }
+                }
+
+                // 2. Restore settings
                 tempo = Math.min(Math.max(data.tempo || 120, 60), 180);
                 document.getElementById("tempoSlider").value = tempo;
-
-                // Restore columns
                 cols = data.cols || 4;
 
-                // Restore grid
+                // 3. Restore grid
                 buildGrid();
                 data.grid.forEach((row, r) => {
                     row.forEach((cell, c) => {
@@ -558,23 +586,7 @@
                         }
                     });
                 });
-
-                // Restore user recordings
-                const userAudioData = data.userAudioData || [];
-                for (let i = 0; i < 3; i++) {
-                    if (userAudioData[i]) {
-                        userPlayers[i] = new Audio(userAudioData[i]);
-                        // mark tile as recorded
-                        const tiles = document.querySelectorAll("#userPalette .soundTile");
-                        tiles[i].style.background = "#06d6a0";
-                    } else {
-                        userPlayers[i] = null;
-                        const tiles = document.querySelectorAll("#userPalette .soundTile");
-                        tiles[i].style.background = "#ffd166";
-                    }
-                }
             };
-
             reader.readAsText(file);
         };
 
